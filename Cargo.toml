@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2021"
 description = "layer — Context layers for git & agentic coding workflows. A fast CLI to manage local-only context files using Git's .git/info/exclude."
 license = "MIT"
+repository = "https://github.com/aungsiminhtet/layer"
+homepage = "https://github.com/aungsiminhtet/layer"
+authors = ["Aung Si Min Htet <aungsiminhtet@outlook.com>"]
+keywords = ["git", "gitignore", "ai-context", "exclude", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+readme = "README.md"
 
 [[bin]]
 name = "layer"
