@@ -1,0 +1,200 @@
+mod commands;
+mod exclude_file;
+mod git;
+mod patterns;
+mod ui;
+
+use anyhow::Result;
+use clap::{Args, CommandFactory, Parser, Subcommand};
+
+#[derive(Parser, Debug)]
+#[command(name = "layer")]
+#[command(author, version, about = "layer — Context layers for git & agentic coding workflows. A fast CLI to manage local-only context files using Git's .git/info/exclude.")]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// Add files or patterns to your local layer
+    Add(AddArgs),
+    /// Remove layered entries
+    Rm(RmArgs),
+    /// List all layered entries with status
+    #[command(alias = "list")]
+    Ls,
+    /// Scan for context files and layer them
+    Scan,
+    /// List all known context-file patterns
+    Patterns(PatternsArgs),
+    /// Diagnose layered entries for issues
+    Doctor,
+    /// Remove stale entries that no longer match files
+    Clean(CleanArgs),
+    /// Remove all layered entries
+    Clear(ClearArgs),
+    /// Dashboard showing layered, exposed, and discovered files
+    Status,
+    /// Backup layered entries
+    Backup,
+    /// Restore layered entries from backup
+    Restore(RestoreArgs),
+    /// Manage global gitignore entries
+    Global(GlobalArgs),
+    /// Explain why a file is or isn't ignored by git
+    Why(WhyArgs),
+    /// Open .git/info/exclude in your editor
+    Edit,
+}
+
+#[derive(Args, Debug)]
+struct AddArgs {
+    /// Files or patterns to add
+    files: Vec<String>,
+    /// Interactive picker mode
+    #[arg(short, long)]
+    interactive: bool,
+    /// Preview changes without writing
+    #[arg(long)]
+    dry_run: bool,
+}
+
+#[derive(Args, Debug)]
+struct RmArgs {
+    /// Files or patterns to remove
+    files: Vec<String>,
+    /// Preview changes without writing
+    #[arg(long)]
+    dry_run: bool,
+}
+
+#[derive(Args, Debug)]
+struct CleanArgs {
+    /// Preview changes without writing
+    #[arg(long)]
+    dry_run: bool,
+    /// Also clean stale entries you added manually to the exclude file
+    #[arg(long)]
+    all: bool,
+}
+
+#[derive(Args, Debug)]
+struct ClearArgs {
+    /// Preview changes without writing
+    #[arg(long)]
+    dry_run: bool,
+}
+
+#[derive(Args, Debug)]
+struct GlobalArgs {
+    #[command(subcommand)]
+    command: GlobalSubcommand,
+}
+
+#[derive(Subcommand, Debug)]
+enum GlobalSubcommand {
+    /// Add entries to global gitignore
+    Add(GlobalAddArgs),
+    /// List global gitignore entries
+    Ls,
+    /// Remove entries from global gitignore
+    Rm(GlobalRmArgs),
+}
+
+#[derive(Args, Debug)]
+struct GlobalAddArgs {
+    /// Files or patterns to add
+    files: Vec<String>,
+}
+
+#[derive(Args, Debug)]
+struct GlobalRmArgs {
+    /// Files or patterns to remove
+    files: Vec<String>,
+}
+
+#[derive(Args, Debug)]
+struct RestoreArgs {
+    /// List available backups
+    #[arg(long)]
+    list: bool,
+}
+
+#[derive(Args, Debug)]
+struct PatternsArgs {
+    /// Output as JSON
+    #[arg(long)]
+    json: bool,
+    /// Show only patterns that match files in the current repo
+    #[arg(long)]
+    matched: bool,
+    /// Show matched file paths (requires --matched)
+    #[arg(long)]
+    show_files: bool,
+}
+
+#[derive(Args, Debug)]
+struct WhyArgs {
+    /// A single file path to diagnose
+    file: String,
+    /// Show extra explanation about git ignore precedence
+    #[arg(short, long)]
+    verbose: bool,
+}
+
+fn dispatch(cli: Cli) -> Result<i32> {
+    match cli.command {
+        Some(Commands::Add(args)) => commands::add::run(args.files, args.interactive, args.dry_run),
+        Some(Commands::Rm(args)) => commands::rm::run(args.files, args.dry_run),
+        Some(Commands::Ls) => commands::ls::run(),
+        Some(Commands::Scan) => commands::scan::run(),
+        Some(Commands::Patterns(args)) => commands::patterns::run(args.json, args.matched, args.show_files),
+        Some(Commands::Doctor) => commands::doctor::run(),
+        Some(Commands::Clean(args)) => commands::clean::run(args.dry_run, args.all),
+        Some(Commands::Clear(args)) => commands::clear::run(args.dry_run),
+        Some(Commands::Status) => commands::status::run(),
+        Some(Commands::Backup) => commands::backup::backup(),
+        Some(Commands::Restore(args)) => commands::backup::restore(args.list),
+        Some(Commands::Global(args)) => match args.command {
+            GlobalSubcommand::Add(add) => commands::global::add(add.files),
+            GlobalSubcommand::Ls => commands::global::ls(),
+            GlobalSubcommand::Rm(rm) => commands::global::rm(rm.files),
+        },
+        Some(Commands::Why(args)) => commands::why_cmd::run(args.file, args.verbose),
+        Some(Commands::Edit) => commands::edit::run(),
+        None => {
+            let mut cmd = Cli::command();
+            cmd.print_help()?;
+            Ok(0)
+        }
+    }
+}
+
+fn main() {
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(e) => match e.kind() {
+            clap::error::ErrorKind::DisplayHelp
+            | clap::error::ErrorKind::DisplayVersion => {
+                println!();
+                let _ = e.print();
+                println!();
+                std::process::exit(0);
+            }
+            _ => e.exit(),
+        },
+    };
+    println!();
+    let code = match dispatch(cli) {
+        Ok(code) => {
+            println!();
+            code
+        }
+        Err(err) => {
+            ui::print_error(&format!("{err:#}"));
+            1
+        }
+    };
+    std::process::exit(code);
+}

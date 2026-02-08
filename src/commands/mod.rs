@@ -1,0 +1,13 @@
+pub mod add;
+pub mod backup;
+pub mod clean;
+pub mod clear;
+pub mod doctor;
+pub mod edit;
+pub mod global;
+pub mod ls;
+pub mod patterns;
+pub mod rm;
+pub mod scan;
+pub mod status;
+pub mod why_cmd;
