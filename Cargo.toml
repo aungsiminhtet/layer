@@ -1,6 +1,6 @@
 [package]
 name = "git-layer"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.77"
 description = "layer — Context layers for git & agentic coding workflows. A fast CLI to manage local-only context files using Git's .git/info/exclude."
@@ -26,7 +26,7 @@ clap = { version = "4", features = ["derive"] }
 dialoguer = "0.11"
 console = "0.15"
 walkdir = "2"
-time = { version = ">=0.3.36, <0.3.47", features = ["formatting", "parsing"] }
+time = { version = "=0.3.36", features = ["formatting", "parsing"] }
 
 [dev-dependencies]
 assert_cmd = "2"
