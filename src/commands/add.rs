@@ -3,10 +3,10 @@ use crate::exclude_file::{ensure_exclude_file_for_write, normalize_entry, Exclud
 use crate::git;
 use crate::git::RepoContext;
 use crate::patterns::PatternCategory;
+use crate::tree_picker;
 use crate::ui;
 use anyhow::{anyhow, Result};
-use dialoguer::MultiSelect;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 #[derive(Debug, Default)]
 pub struct AddSummary {
@@ -96,29 +96,18 @@ fn run_interactive(ctx: &RepoContext, exclude: &mut ExcludeFile, dry_run: bool) 
         return Ok(2);
     }
 
-    let displays: Vec<String> = candidates
-        .iter()
-        .map(|c| format!("{} {}", c.path, ui::dim_text(&format!("({})", c.category))))
-        .collect();
+    let nodes = build_tree(candidates);
 
     println!("{}", ui::heading("Select files to add to your local layer"));
-    let theme = ui::layer_theme();
-    ui::print_select_hint();
-    let selections = MultiSelect::with_theme(&theme)
-        .items(&displays)
-        .report(false)
-        .interact_opt()?;
+    ui::print_tree_picker_hint();
 
-    let selected = selections.unwrap_or_default();
-    if selected.is_empty() {
-        println!("No files selected.");
-        return Ok(2);
-    }
-
-    let chosen = selected
-        .into_iter()
-        .map(|idx| candidates[idx].path.clone())
-        .collect::<Vec<_>>();
+    let chosen = match tree_picker::run(&nodes)? {
+        Some(paths) if !paths.is_empty() => paths,
+        _ => {
+            println!("No files selected.");
+            return Ok(2);
+        }
+    };
 
     let summary = apply_add_entries(ctx, exclude, &chosen, dry_run)?;
     if dry_run {
@@ -129,6 +118,64 @@ fn run_interactive(ctx: &RepoContext, exclude: &mut ExcludeFile, dry_run: bool) 
     }
 
     Ok(0)
+}
+
+/// Groups flat candidates into a recursive tree structure for the tree picker.
+/// At each level: root-level files come first, then BTreeMap-sorted directory
+/// groups. Directories with only 1 file are promoted to the parent level.
+fn build_tree(candidates: Vec<InteractiveCandidate>) -> Vec<tree_picker::TreeNode> {
+    build_subtree(candidates, "")
+}
+
+fn build_subtree(candidates: Vec<InteractiveCandidate>, prefix: &str) -> Vec<tree_picker::TreeNode> {
+    let mut root_files: Vec<tree_picker::TreeNode> = Vec::new();
+    let mut dir_groups: BTreeMap<String, Vec<InteractiveCandidate>> = BTreeMap::new();
+
+    for c in candidates {
+        let relative = &c.path[prefix.len()..];
+        if let Some(slash_pos) = relative.find('/') {
+            let full_dir = format!("{}{}", prefix, &relative[..=slash_pos]);
+            dir_groups.entry(full_dir).or_default().push(c);
+        } else {
+            root_files.push(tree_picker::TreeNode {
+                path: c.path,
+                category: c.category.to_string(),
+                children: Vec::new(),
+            });
+        }
+    }
+
+    let mut result = root_files;
+
+    for (dir, files) in dir_groups {
+        let children = build_subtree(files, &dir);
+        if children.len() == 1 && children[0].children.is_empty() {
+            // Single-file directory — promote the file to this level.
+            result.push(children.into_iter().next().unwrap());
+        } else {
+            let file_count = count_leaf_files(&children);
+            result.push(tree_picker::TreeNode {
+                path: dir,
+                category: format!("{} files", file_count),
+                children,
+            });
+        }
+    }
+
+    result
+}
+
+fn count_leaf_files(nodes: &[tree_picker::TreeNode]) -> usize {
+    nodes
+        .iter()
+        .map(|n| {
+            if n.children.is_empty() {
+                1
+            } else {
+                count_leaf_files(&n.children)
+            }
+        })
+        .sum()
 }
 
 fn collect_candidates(ctx: &RepoContext, exclude: &ExcludeFile) -> Result<Vec<InteractiveCandidate>> {

@@ -10,12 +10,13 @@ pub fn run() -> Result<i32> {
     let ctx = git::ensure_repo()?;
     let exclude = ensure_exclude_file(&ctx.exclude_path)?;
     let entries = exclude.entries();
+    let disabled = exclude.disabled_entries();
 
     let tracked = git::list_tracked(&ctx.root)?;
     let pattern_index = git::build_pattern_match_index(&ctx.root, &ctx.exclude_path, &tracked)?;
 
     let mut layered = Vec::new();
-    let mut exposed = Vec::new();
+    let mut exposed: Vec<(String, String, Vec<String>)> = Vec::new();
 
     for entry in &entries {
         classify_entry(
@@ -79,6 +80,14 @@ pub fn run() -> Result<i32> {
                 layered.len()
             );
         }
+        if !disabled.is_empty() {
+            println!(
+                "  {} {} disabled ({})",
+                ui::disabled(),
+                disabled.len(),
+                ui::brand("layer on"),
+            );
+        }
         return Ok(0);
     }
 
@@ -93,18 +102,40 @@ pub fn run() -> Result<i32> {
         has_section = true;
     }
 
+    // Disabled section — temporarily turned off entries
+    if !disabled.is_empty() {
+        if has_section {
+            println!();
+        }
+        println!(
+            "  {} Disabled ({}):",
+            ui::disabled(),
+            disabled.len()
+        );
+        for entry in &disabled {
+            println!("    {}", ui::dim_text(&entry.value));
+        }
+        has_section = true;
+    }
+
     // Exposed section — excluded entries that are still tracked
     if !exposed.is_empty() {
         if has_section { println!(); }
         println!("  {} Exposed ({}):", ui::exposed(), exposed.len());
-        let width = exposed.iter().map(|(e, _)| e.len()).max().unwrap_or(0);
-        for (entry, fix) in &exposed {
+        let width = exposed.iter().map(|(e, _, _)| e.len()).max().unwrap_or(0);
+        for (entry, fix, tracked_files) in &exposed {
             println!(
                 "    {:<width$}  {}",
                 entry,
                 ui::warn_text(fix),
                 width = width
             );
+            for file in tracked_files {
+                println!(
+                    "      {}",
+                    ui::warn_text(&format!("git rm --cached {file}"))
+                );
+            }
         }
         has_section = true;
     }
@@ -160,7 +191,7 @@ fn classify_entry(
     tracked: &HashSet<String>,
     pattern_index: &HashMap<String, PatternMatchSummary>,
     layered: &mut Vec<String>,
-    exposed: &mut Vec<(String, String)>,
+    exposed: &mut Vec<(String, String, Vec<String>)>,
 ) {
     if entry.ends_with('/') {
         let dir = repo_root.join(entry.trim_end_matches('/'));
@@ -168,11 +199,16 @@ fn classify_entry(
             return;
         }
 
-        if tracked.iter().any(|path| path.starts_with(entry)) {
-            exposed.push((
-                entry.to_string(),
-                format!("git rm --cached -r {}", entry.trim_end_matches('/')),
-            ));
+        let mut tracked_files: Vec<String> = tracked
+            .iter()
+            .filter(|path| path.starts_with(entry))
+            .cloned()
+            .collect();
+
+        if !tracked_files.is_empty() {
+            tracked_files.sort();
+            let summary = format!("{} tracked:", tracked_files.len());
+            exposed.push((entry.to_string(), summary, tracked_files));
             return;
         }
 
@@ -190,6 +226,7 @@ fn classify_entry(
             exposed.push((
                 entry.to_string(),
                 "tracked — exclude has no effect".to_string(),
+                Vec::new(),
             ));
             return;
         }
@@ -202,6 +239,7 @@ fn classify_entry(
         exposed.push((
             entry.to_string(),
             format!("git rm --cached {entry}"),
+            Vec::new(),
         ));
         return;
     }

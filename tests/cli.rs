@@ -529,6 +529,225 @@ fn backup_creates_file_and_restore_list_shows_it() {
 
 // --- add dry-run integration test ---
 
+// --- off/on integration tests ---
+
+#[test]
+fn off_disables_all_entries() {
+    let repo = init_repo();
+
+    Command::new(assert_cmd::cargo::cargo_bin!("layer"))
+        .current_dir(repo.path())
+        .args(["add", "CLAUDE.md", "Agents.md"])
+        .assert()
+        .success();
+
+    Command::new(assert_cmd::cargo::cargo_bin!("layer"))
+        .current_dir(repo.path())
+        .arg("off")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Disabled CLAUDE.md"))
+        .stdout(predicate::str::contains("Disabled Agents.md"));
+
+    let content = fs::read_to_string(exclude_path(repo.path())).expect("read");
+    assert!(content.contains("# [off] CLAUDE.md"));
+    assert!(content.contains("# [off] Agents.md"));
+}
+
+#[test]
+fn on_enables_all_entries() {
+    let repo = init_repo();
+    let exclude = exclude_path(repo.path());
+    fs::create_dir_all(exclude.parent().unwrap()).expect("mkdir");
+    fs::write(
+        &exclude,
+        "# managed by layer\n# [off] CLAUDE.md\n# [off] Agents.md\n# end layer\n",
+    )
+    .expect("write");
+
+    Command::new(assert_cmd::cargo::cargo_bin!("layer"))
+        .current_dir(repo.path())
+        .arg("on")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Enabled CLAUDE.md"))
+        .stdout(predicate::str::contains("Enabled Agents.md"));
+
+    let content = fs::read_to_string(&exclude).expect("read");
+    assert!(!content.contains("# [off]"));
+    assert!(content.contains("CLAUDE.md"));
+    assert!(content.contains("Agents.md"));
+}
+
+#[test]
+fn off_specific_entry() {
+    let repo = init_repo();
+
+    Command::new(assert_cmd::cargo::cargo_bin!("layer"))
+        .current_dir(repo.path())
+        .args(["add", "CLAUDE.md", "Agents.md"])
+        .assert()
+        .success();
+
+    Command::new(assert_cmd::cargo::cargo_bin!("layer"))
+        .current_dir(repo.path())
+        .args(["off", "CLAUDE.md"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Disabled CLAUDE.md"));
+
+    let content = fs::read_to_string(exclude_path(repo.path())).expect("read");
+    assert!(content.contains("# [off] CLAUDE.md"));
+    assert!(content.contains("\nAgents.md\n"));
+}
+
+#[test]
+fn on_specific_entry() {
+    let repo = init_repo();
+    let exclude = exclude_path(repo.path());
+    fs::create_dir_all(exclude.parent().unwrap()).expect("mkdir");
+    fs::write(
+        &exclude,
+        "# managed by layer\n# [off] CLAUDE.md\n# [off] Agents.md\n# end layer\n",
+    )
+    .expect("write");
+
+    Command::new(assert_cmd::cargo::cargo_bin!("layer"))
+        .current_dir(repo.path())
+        .args(["on", "CLAUDE.md"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Enabled CLAUDE.md"));
+
+    let content = fs::read_to_string(&exclude).expect("read");
+    assert!(content.contains("CLAUDE.md"));
+    assert!(content.contains("# [off] Agents.md"));
+}
+
+#[test]
+fn off_nothing_to_disable_exits_2() {
+    let repo = init_repo();
+
+    Command::new(assert_cmd::cargo::cargo_bin!("layer"))
+        .current_dir(repo.path())
+        .arg("off")
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("No active entries to disable"));
+}
+
+#[test]
+fn on_nothing_to_enable_exits_2() {
+    let repo = init_repo();
+
+    Command::new(assert_cmd::cargo::cargo_bin!("layer"))
+        .current_dir(repo.path())
+        .arg("on")
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("No disabled entries to enable"));
+}
+
+#[test]
+fn off_dry_run_does_not_modify() {
+    let repo = init_repo();
+
+    Command::new(assert_cmd::cargo::cargo_bin!("layer"))
+        .current_dir(repo.path())
+        .args(["add", "CLAUDE.md"])
+        .assert()
+        .success();
+
+    Command::new(assert_cmd::cargo::cargo_bin!("layer"))
+        .current_dir(repo.path())
+        .args(["off", "--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Would disable CLAUDE.md"))
+        .stdout(predicate::str::contains("dry run"));
+
+    let content = fs::read_to_string(exclude_path(repo.path())).expect("read");
+    assert!(!content.contains("# [off]"), "file should not be modified after dry run");
+}
+
+#[test]
+fn on_dry_run_does_not_modify() {
+    let repo = init_repo();
+    let exclude = exclude_path(repo.path());
+    fs::create_dir_all(exclude.parent().unwrap()).expect("mkdir");
+    fs::write(
+        &exclude,
+        "# managed by layer\n# [off] CLAUDE.md\n# end layer\n",
+    )
+    .expect("write");
+
+    Command::new(assert_cmd::cargo::cargo_bin!("layer"))
+        .current_dir(repo.path())
+        .args(["on", "--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Would enable CLAUDE.md"))
+        .stdout(predicate::str::contains("dry run"));
+
+    let content = fs::read_to_string(&exclude).expect("read");
+    assert!(content.contains("# [off] CLAUDE.md"), "file should not be modified after dry run");
+}
+
+#[test]
+fn ls_shows_disabled_entries() {
+    let repo = init_repo();
+    fs::write(repo.path().join("CLAUDE.md"), "notes").expect("write");
+    let exclude = exclude_path(repo.path());
+    fs::create_dir_all(exclude.parent().unwrap()).expect("mkdir");
+    fs::write(
+        &exclude,
+        "# managed by layer\nCLAUDE.md\n# [off] Agents.md\n# end layer\n",
+    )
+    .expect("write");
+
+    Command::new(assert_cmd::cargo::cargo_bin!("layer"))
+        .current_dir(repo.path())
+        .arg("ls")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("CLAUDE.md"))
+        .stdout(predicate::str::contains("layered"))
+        .stdout(predicate::str::contains("Agents.md"))
+        .stdout(predicate::str::contains("(disabled)"));
+}
+
+#[test]
+fn roundtrip_off_then_on() {
+    let repo = init_repo();
+
+    Command::new(assert_cmd::cargo::cargo_bin!("layer"))
+        .current_dir(repo.path())
+        .args(["add", "CLAUDE.md", "Agents.md"])
+        .assert()
+        .success();
+
+    let before = fs::read_to_string(exclude_path(repo.path())).expect("read");
+
+    // Disable all
+    Command::new(assert_cmd::cargo::cargo_bin!("layer"))
+        .current_dir(repo.path())
+        .arg("off")
+        .assert()
+        .success();
+
+    // Re-enable all
+    Command::new(assert_cmd::cargo::cargo_bin!("layer"))
+        .current_dir(repo.path())
+        .arg("on")
+        .assert()
+        .success();
+
+    let after = fs::read_to_string(exclude_path(repo.path())).expect("read");
+    assert_eq!(before, after, "roundtrip should restore original file");
+}
+
+// --- add dry-run integration test ---
+
 #[test]
 fn add_dry_run_does_not_write() {
     let repo = init_repo();

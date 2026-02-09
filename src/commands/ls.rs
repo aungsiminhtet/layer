@@ -11,9 +11,10 @@ pub fn run() -> Result<i32> {
     let ctx = git::ensure_repo()?;
     let exclude = ensure_exclude_file(&ctx.exclude_path)?;
     let entries = exclude.entries();
+    let disabled = exclude.disabled_entries();
     let user_entries = exclude.user_entries();
 
-    if entries.is_empty() && user_entries.is_empty() {
+    if entries.is_empty() && disabled.is_empty() && user_entries.is_empty() {
         println!(
             "No layered entries. Run {} or {} to get started.",
             ui::brand("layer add"),
@@ -30,6 +31,7 @@ pub fn run() -> Result<i32> {
     let all_names = entries
         .iter()
         .map(|e| e.value.len())
+        .chain(disabled.iter().map(|e| e.value.len()))
         .chain(user_entries.iter().map(|e| e.value.len()));
     let max_name = all_names.max().unwrap_or(10);
 
@@ -75,8 +77,23 @@ pub fn run() -> Result<i32> {
         }
     }
 
-    if !user_entries.is_empty() {
+    if !disabled.is_empty() {
         if !entries.is_empty() {
+            println!();
+        }
+        for entry in &disabled {
+            let name = format!("{:<width$}", entry.value, width = max_name);
+            println!(
+                "  {} {}  {}",
+                ui::disabled(),
+                name,
+                ui::dim_text("(disabled)")
+            );
+        }
+    }
+
+    if !user_entries.is_empty() {
+        if !entries.is_empty() || !disabled.is_empty() {
             println!();
         }
         for entry in &user_entries {
@@ -143,9 +160,11 @@ fn classify_directory(repo_root: &Path, entry: &str, tracked: &HashSet<String>) 
         }
     }
 
-    if tracked.iter().any(|p| p.starts_with(entry)) {
+    let tracked_count = tracked.iter().filter(|p| p.starts_with(entry)).count();
+    if tracked_count > 0 {
         return EntryStatus::Exposed(format!(
-            "exposed — git rm --cached -r {}",
+            "exposed — {} tracked (git rm --cached -r {})",
+            tracked_count,
             entry.trim_end_matches('/')
         ));
     }

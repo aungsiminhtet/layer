@@ -135,6 +135,14 @@ cargo clippy
 cargo build --release
 ```
 
+## Changelog
+
+### v0.1.3
+
+- **Tree picker for `layer add`** — interactive mode now shows a collapsible tree instead of a flat list. Directories are collapsed by default; use `←/→` to expand/collapse at any nesting depth.
+- **Nested directory grouping** — sub-directories are independently expandable. Single-file directories are promoted to the parent level.
+- **Exposed file details** — `layer status` and `layer ls` now show which specific files are tracked inside a directory entry.
+
 ## License
 
 MIT

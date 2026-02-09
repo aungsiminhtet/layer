@@ -5,6 +5,7 @@ use std::path::Path;
 
 pub const SECTION_START: &str = "# managed by layer";
 pub const SECTION_END: &str = "# end layer";
+pub const DISABLED_PREFIX: &str = "# [off] ";
 
 #[derive(Debug, Clone)]
 pub struct Entry {
@@ -118,8 +119,92 @@ impl ExcludeFile {
             .collect()
     }
 
+    pub fn disabled_entries(&self) -> Vec<Entry> {
+        self.managed
+            .iter()
+            .filter_map(|line| {
+                let trimmed = line.trim();
+                trimmed.strip_prefix(DISABLED_PREFIX).and_then(|value| {
+                    let value = value.trim();
+                    if value.is_empty() {
+                        None
+                    } else {
+                        Some(Entry {
+                            value: value.to_string(),
+                        })
+                    }
+                })
+            })
+            .collect()
+    }
+
+    pub fn disabled_entry_set(&self) -> HashSet<String> {
+        self.disabled_entries()
+            .into_iter()
+            .map(|e| e.value)
+            .collect()
+    }
+
     pub fn entry_set(&self) -> HashSet<String> {
         self.entries().into_iter().map(|e| e.value).collect()
+    }
+
+    pub fn disable_entries(&mut self, targets: &HashSet<String>) -> Vec<String> {
+        let mut disabled = Vec::new();
+        for line in &mut self.managed {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            if targets.contains(trimmed) {
+                disabled.push(trimmed.to_string());
+                *line = format!("{DISABLED_PREFIX}{trimmed}");
+            }
+        }
+        disabled
+    }
+
+    pub fn disable_all(&mut self) -> Vec<String> {
+        let mut disabled = Vec::new();
+        for line in &mut self.managed {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            disabled.push(trimmed.to_string());
+            *line = format!("{DISABLED_PREFIX}{trimmed}");
+        }
+        disabled
+    }
+
+    pub fn enable_entries(&mut self, targets: &HashSet<String>) -> Vec<String> {
+        let mut enabled = Vec::new();
+        for line in &mut self.managed {
+            let trimmed = line.trim();
+            if let Some(value) = trimmed.strip_prefix(DISABLED_PREFIX) {
+                let value = value.trim();
+                if targets.contains(value) {
+                    enabled.push(value.to_string());
+                    *line = value.to_string();
+                }
+            }
+        }
+        enabled
+    }
+
+    pub fn enable_all(&mut self) -> Vec<String> {
+        let mut enabled = Vec::new();
+        for line in &mut self.managed {
+            let trimmed = line.trim();
+            if let Some(value) = trimmed.strip_prefix(DISABLED_PREFIX) {
+                let value = value.trim();
+                if !value.is_empty() {
+                    enabled.push(value.to_string());
+                    *line = value.to_string();
+                }
+            }
+        }
+        enabled
     }
 
     pub fn append_entry(&mut self, entry: &str) {
@@ -395,6 +480,36 @@ mod tests {
     }
 
     #[test]
+    fn disabled_entries_returns_off_prefixed_lines() {
+        let file = ExcludeFile {
+            prefix: Vec::new(),
+            managed: vec![
+                "CLAUDE.md".into(),
+                "# [off] Agents.md".into(),
+                "# [off] .claude/".into(),
+                "# regular comment".into(),
+            ],
+            suffix: Vec::new(),
+        };
+        let disabled = file.disabled_entries();
+        assert_eq!(disabled.len(), 2);
+        assert_eq!(disabled[0].value, "Agents.md");
+        assert_eq!(disabled[1].value, ".claude/");
+    }
+
+    #[test]
+    fn entries_does_not_include_disabled() {
+        let file = ExcludeFile {
+            prefix: Vec::new(),
+            managed: vec!["CLAUDE.md".into(), "# [off] Agents.md".into()],
+            suffix: Vec::new(),
+        };
+        let active = file.entries();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].value, "CLAUDE.md");
+    }
+
+    #[test]
     fn clear_managed_preserves_prefix_suffix() {
         let mut file = ExcludeFile {
             prefix: vec!["user-stuff".into()],
@@ -405,5 +520,94 @@ mod tests {
         assert!(file.managed.is_empty());
         assert_eq!(file.prefix, vec!["user-stuff"]);
         assert_eq!(file.suffix, vec!["more-stuff"]);
+    }
+
+    #[test]
+    fn disable_all_disables_everything() {
+        let mut file = ExcludeFile {
+            prefix: Vec::new(),
+            managed: vec!["CLAUDE.md".into(), "Agents.md".into()],
+            suffix: Vec::new(),
+        };
+        let disabled = file.disable_all();
+        assert_eq!(disabled.len(), 2);
+        assert_eq!(
+            file.managed,
+            vec!["# [off] CLAUDE.md", "# [off] Agents.md"]
+        );
+    }
+
+    #[test]
+    fn disable_skips_already_disabled() {
+        let mut file = ExcludeFile {
+            prefix: Vec::new(),
+            managed: vec!["CLAUDE.md".into(), "# [off] Agents.md".into()],
+            suffix: Vec::new(),
+        };
+        let disabled = file.disable_all();
+        assert_eq!(disabled, vec!["CLAUDE.md"]);
+        assert_eq!(file.managed[1], "# [off] Agents.md");
+    }
+
+    #[test]
+    fn enable_all_enables_everything() {
+        let mut file = ExcludeFile {
+            prefix: Vec::new(),
+            managed: vec![
+                "# [off] CLAUDE.md".into(),
+                "# [off] Agents.md".into(),
+                "active.md".into(),
+            ],
+            suffix: Vec::new(),
+        };
+        let enabled = file.enable_all();
+        assert_eq!(enabled.len(), 2);
+        assert_eq!(file.managed, vec!["CLAUDE.md", "Agents.md", "active.md"]);
+    }
+
+    #[test]
+    fn disable_specific_entries() {
+        let mut file = ExcludeFile {
+            prefix: Vec::new(),
+            managed: vec!["CLAUDE.md".into(), "Agents.md".into(), ".claude/".into()],
+            suffix: Vec::new(),
+        };
+        let disabled =
+            file.disable_entries(&HashSet::from(["CLAUDE.md".to_string()]));
+        assert_eq!(disabled, vec!["CLAUDE.md"]);
+        assert_eq!(file.managed[0], "# [off] CLAUDE.md");
+        assert_eq!(file.managed[1], "Agents.md");
+    }
+
+    #[test]
+    fn enable_specific_entries() {
+        let mut file = ExcludeFile {
+            prefix: Vec::new(),
+            managed: vec![
+                "# [off] CLAUDE.md".into(),
+                "# [off] Agents.md".into(),
+            ],
+            suffix: Vec::new(),
+        };
+        let enabled =
+            file.enable_entries(&HashSet::from(["CLAUDE.md".to_string()]));
+        assert_eq!(enabled, vec!["CLAUDE.md"]);
+        assert_eq!(file.managed[0], "CLAUDE.md");
+        assert_eq!(file.managed[1], "# [off] Agents.md");
+    }
+
+    #[test]
+    fn roundtrip_disable_then_enable() {
+        let mut file = ExcludeFile {
+            prefix: Vec::new(),
+            managed: vec!["CLAUDE.md".into(), "Agents.md".into()],
+            suffix: Vec::new(),
+        };
+        let original = file.managed.clone();
+        file.disable_all();
+        assert_eq!(file.entries().len(), 0);
+        assert_eq!(file.disabled_entries().len(), 2);
+        file.enable_all();
+        assert_eq!(file.managed, original);
     }
 }

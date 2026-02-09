@@ -6,6 +6,7 @@ pub mod doctor;
 pub mod edit;
 pub mod global;
 pub mod ls;
+pub mod on_off;
 pub mod patterns;
 pub mod rm;
 pub mod scan;

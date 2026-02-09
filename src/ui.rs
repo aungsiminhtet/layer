@@ -34,6 +34,11 @@ pub fn manual() -> String {
     style("~").dim().to_string()
 }
 
+/// Disabled — entry is temporarily turned off.
+pub fn disabled() -> String {
+    style("○").dim().to_string()
+}
+
 /// Success — action completed. Cyan brand accent.
 pub fn ok() -> String {
     style("✓").cyan().bold().to_string()
@@ -101,6 +106,14 @@ pub fn print_select_hint() {
     eprintln!(
         "  {}",
         dim_text("↑/↓ move · space select/deselect · enter confirm")
+    );
+}
+
+/// Print keyboard guide for tree picker prompts.
+pub fn print_tree_picker_hint() {
+    eprintln!(
+        "  {}",
+        dim_text("↑/↓ move · space select · ←/→ expand/collapse · enter confirm")
     );
 }
 

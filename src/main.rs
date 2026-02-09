@@ -2,6 +2,7 @@ mod commands;
 mod exclude_file;
 mod git;
 mod patterns;
+mod tree_picker;
 mod ui;
 
 use anyhow::Result;
@@ -34,6 +35,10 @@ enum Commands {
     Clean(CleanArgs),
     /// Remove all layered entries
     Clear(ClearArgs),
+    /// Temporarily disable layered entries (files become visible to git)
+    Off(OffArgs),
+    /// Re-enable disabled layered entries
+    On(OnArgs),
     /// Dashboard showing layered, exposed, and discovered files
     Status,
     /// Backup layered entries
@@ -81,6 +86,24 @@ struct CleanArgs {
 
 #[derive(Args, Debug)]
 struct ClearArgs {
+    /// Preview changes without writing
+    #[arg(long)]
+    dry_run: bool,
+}
+
+#[derive(Args, Debug)]
+struct OffArgs {
+    /// Entries to disable (all if omitted)
+    files: Vec<String>,
+    /// Preview changes without writing
+    #[arg(long)]
+    dry_run: bool,
+}
+
+#[derive(Args, Debug)]
+struct OnArgs {
+    /// Entries to enable (all if omitted)
+    files: Vec<String>,
     /// Preview changes without writing
     #[arg(long)]
     dry_run: bool,
@@ -153,6 +176,8 @@ fn dispatch(cli: Cli) -> Result<i32> {
         Some(Commands::Doctor) => commands::doctor::run(),
         Some(Commands::Clean(args)) => commands::clean::run(args.dry_run, args.all),
         Some(Commands::Clear(args)) => commands::clear::run(args.dry_run),
+        Some(Commands::Off(args)) => commands::on_off::run_off(args.files, args.dry_run),
+        Some(Commands::On(args)) => commands::on_off::run_on(args.files, args.dry_run),
         Some(Commands::Status) => commands::status::run(),
         Some(Commands::Backup) => commands::backup::backup(),
         Some(Commands::Restore(args)) => commands::backup::restore(args.list),
