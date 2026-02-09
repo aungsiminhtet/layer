@@ -53,6 +53,22 @@ layer status
 | `layer ls`             | List all layered entries with status                                      |
 | `layer scan`           | Auto-detect context files and layer them                                  |
 | `layer status`         | Dashboard — layered, exposed, and discovered files                        |
+| `layer off [files...]` | Temporarily disable entries (files become visible to git)                 |
+| `layer on [files...]`  | Re-enable disabled entries                                                |
+
+### Toggle layering on/off
+
+Editors like VS Code, Claude Code, and Cursor use git's exclude rules to filter their file indexes. Once a file is layered, it disappears from autocomplete, file pickers, and `@`-mentions — so you can't easily reference `CLAUDE.md` or `CUSTOM_INSTRUCTIONS.md` when prompting an AI agent to read or edit them.
+
+`layer off` comments out your managed entries so editors see the files again. When you're done, `layer on` re-enables layering before you stage and commit.
+
+```bash
+layer off              # disable all — files reappear in editor autocomplete
+layer off CLAUDE.md    # disable a specific entry
+layer on               # re-enable all before committing
+```
+
+Both commands support `--dry-run` to preview changes.
 
 ### Diagnostics
 
@@ -142,6 +158,7 @@ cargo build --release
 - **Tree picker for `layer add`** — interactive mode now shows a collapsible tree instead of a flat list. Directories are collapsed by default; use `←/→` to expand/collapse at any nesting depth.
 - **Nested directory grouping** — sub-directories are independently expandable. Single-file directories are promoted to the parent level.
 - **Exposed file details** — `layer status` and `layer ls` now show which specific files are tracked inside a directory entry.
+- **`layer off` / `layer on`** — temporarily disable/enable managed entries so editors can see layered files in autocomplete.
 
 ## License
 
